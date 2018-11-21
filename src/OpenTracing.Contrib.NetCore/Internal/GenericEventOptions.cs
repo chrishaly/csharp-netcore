@@ -5,18 +5,60 @@ namespace OpenTracing.Contrib.NetCore.Internal
 {
     public class GenericEventOptions
     {
-        public bool IgnoreAll { get; set; }
+        private bool _hasFilter;
+        private bool _ignoreAll;
+        private Dictionary<string, HashSet<string>> _ignoredEvents;
+        private HashSet<string> _ignoredListeners;
 
-        public HashSet<string> IgnoredListenerNames { get; } = new HashSet<string>();
+        /// <summary>
+        /// is ignore all events log
+        /// </summary>
+        public bool IgnoreAll
+        {
+            get => _ignoreAll;
+            set
+            {
+                _ignoreAll = value;
+                CheckHasFilter();
+            }
+        }
 
-        public Dictionary<string, HashSet<string>> IgnoredEvents { get; } = new Dictionary<string, HashSet<string>>();
+        /// <summary>
+        /// listener names which will be ignored for logging
+        /// </summary>
+        public HashSet<string> IgnoredListeners
+        {
+            get => _ignoredListeners;
+            set
+            {
+                _ignoredListeners = value;
+                CheckHasFilter();
+            }
+        }
+
+        /// <summary>
+        /// events which will be ignored for logging. Key is listener name, HashSet item is event name of the listener
+        /// </summary>
+        public Dictionary<string, HashSet<string>> IgnoredEvents
+        {
+            get => _ignoredEvents;
+            set
+            {
+                _ignoredEvents = value;
+                CheckHasFilter();
+            }
+        }
 
         public void IgnoreListener(string listenerName)
         {
             if (listenerName == null)
                 throw new ArgumentNullException(nameof(listenerName));
 
-            IgnoredListenerNames.Add(listenerName);
+            if (IgnoredListeners == null)
+                IgnoredListeners = new HashSet<string>();
+
+            IgnoredListeners.Add(listenerName);
+            _hasFilter = true;
         }
 
         public void IgnoreEvent(string listenerName, string eventName)
@@ -27,6 +69,9 @@ namespace OpenTracing.Contrib.NetCore.Internal
             if (eventName == null)
                 throw new ArgumentNullException(nameof(eventName));
 
+            if (IgnoredListeners == null)
+                IgnoredListeners = new HashSet<string>();
+
             if (!IgnoredEvents.TryGetValue(listenerName, out var ignoredListenerEvents))
             {
                 ignoredListenerEvents = new HashSet<string>();
@@ -34,31 +79,49 @@ namespace OpenTracing.Contrib.NetCore.Internal
             }
 
             ignoredListenerEvents.Add(eventName);
+            _hasFilter = true;
         }
 
+        /// <summary>
+        /// usually used in DiagnosticObserver
+        /// </summary>
+        /// <param name="listenerName"></param>
+        /// <returns></returns>
         public bool IsIgnored(string listenerName)
         {
+            if (!_hasFilter)
+                return false;
+
             if (IgnoreAll)
                 return true;
 
-            if (IgnoredListenerNames.Contains(listenerName))
-                return true;
-
-            return false;
+            return IgnoredListeners.Count > 0
+                && IgnoredListeners.Contains(listenerName);
         }
 
         public bool IsIgnored(string listenerName, string eventName)
         {
+            if (!_hasFilter)
+                return false;
+
             if (IgnoreAll)
                 return true;
 
-            if (IgnoredListenerNames.Contains(listenerName))
-                return true;
+            return IgnoredEvents.TryGetValue(listenerName, out var set)
+                && set.Contains(eventName);
+        }
 
-            if (IgnoredEvents.TryGetValue(listenerName, out var set) && set.Contains(eventName))
-                return true;
+        private void CheckHasFilter()
+        {
+            if (IgnoredListeners == null)
+                IgnoredListeners = new HashSet<string>();
 
-            return false;
+            if (IgnoredEvents == null)
+                IgnoredEvents = new Dictionary<string, HashSet<string>>();
+
+            _hasFilter = IgnoreAll
+                || IgnoredListeners.Count > 0
+                || IgnoredEvents.Count > 0;
         }
     }
 }
